@@ -1,35 +1,85 @@
-import chromadb
-from chromadb.config import Settings
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
 from typing import List, Dict
+import uuid
 
 class Retriever:
-    def __init__(self, persist_directory: str = "./chroma_db"):
-        self.client = chromadb.Client(Settings(
-            persist_directory=persist_directory,
-            anonymized_telemetry=False
-        ))
-        self.collection = self.client.get_or_create_collection(
-            name="devflow_documents",
-            metadata={"hnsw:space": "cosine"}
-        )
+    def __init__(self):
+        # Use in-memory Qdrant (no external service needed)
+        self.client = QdrantClient(":memory:")
+        self.collection_name = "devflow_documents"
+        
+        # Create collection (384 dimensions for all-MiniLM-L6-v2)
+        try:
+            self.client.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=VectorParams(size=384, distance=Distance.COSINE)
+            )
+        except:
+            pass  # Collection already exists
     
     def add_documents(self, documents: List[str], metadatas: List[Dict], ids: List[str]):
-        self.collection.add(documents=documents, metadatas=metadatas, ids=ids)
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # Generate embeddings
+        embeddings = model.encode(documents)
+        
+        # Create points
+        points = []
+        for i, (doc, metadata, doc_id) in enumerate(zip(documents, metadatas, ids)):
+            points.append(PointStruct(
+                id=str(uuid.uuid4()),
+                vector=embeddings[i].tolist(),
+                payload={**metadata, "text": doc}
+            ))
+        
+        # Upload to Qdrant
+        self.client.upsert(
+            collection_name=self.collection_name,
+            points=points
+        )
     
     def search(self, query: str, n_results: int = 5) -> Dict:
-        results = self.collection.query(query_texts=[query], n_results=n_results)
-        if not results['documents'][0]:
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # Generate query embedding
+        query_embedding = model.encode(query).tolist()
+        
+        # Search
+        results = self.client.search(
+            collection_name=self.collection_name,
+            query_vector=query_embedding,
+            limit=n_results
+        )
+        
+        if not results:
             return {"documents": [], "metadatas": [], "distances": []}
+        
+        documents = [r.payload.get("text", "") for r in results]
+        metadatas = [{k: v for k, v in r.payload.items() if k != "text"} for r in results]
+        distances = [r.score for r in results]
+        
         return {
-            "documents": results['documents'][0],
-            "metadatas": results['metadatas'][0],
-            "distances": results['distances'][0]
+            "documents": documents,
+            "metadatas": metadatas,
+            "distances": distances
         }
     
     def delete_by_source(self, source_id: int):
-        results = self.collection.get(where={"source_id": source_id})
-        if results['ids']:
-            self.collection.delete(ids=results['ids'])
+        # Delete all points with matching source_id
+        self.client.delete(
+            collection_name=self.collection_name,
+            points_selector={
+                "filter": {
+                    "must": [
+                        {"key": "source_id", "match": {"value": source_id}}
+                    ]
+                }
+            }
+        )
     
     def count(self) -> int:
-        return self.collection.count()
+        info = self.client.get_collection(collection_name=self.collection_name)
+        return info.points_count
