@@ -1,85 +1,82 @@
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+import faiss
+import numpy as np
 from typing import List, Dict
-import uuid
+import pickle
+import os
 
 class Retriever:
-    def __init__(self):
-        # Use in-memory Qdrant (no external service needed)
-        self.client = QdrantClient(":memory:")
-        self.collection_name = "devflow_documents"
+    def __init__(self, persist_directory: str = "./faiss_db"):
+        self.persist_directory = persist_directory
+        self.index_path = os.path.join(persist_directory, "index.faiss")
+        self.metadata_path = os.path.join(persist_directory, "metadata.pkl")
         
-        # Create collection (384 dimensions for all-MiniLM-L6-v2)
-        try:
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(size=384, distance=Distance.COSINE)
-            )
-        except:
-            pass  # Collection already exists
+        os.makedirs(persist_directory, exist_ok=True)
+        
+        if os.path.exists(self.index_path):
+            self.index = faiss.read_index(self.index_path)
+            with open(self.metadata_path, 'rb') as f:
+                self.metadata = pickle.load(f)
+        else:
+            self.index = faiss.IndexFlatL2(384)
+            self.metadata = []
     
     def add_documents(self, documents: List[str], metadatas: List[Dict], ids: List[str]):
         from sentence_transformers import SentenceTransformer
         model = SentenceTransformer('all-MiniLM-L6-v2')
         
-        # Generate embeddings
         embeddings = model.encode(documents)
+        embeddings = np.array(embeddings).astype('float32')
         
-        # Create points
-        points = []
-        for i, (doc, metadata, doc_id) in enumerate(zip(documents, metadatas, ids)):
-            points.append(PointStruct(
-                id=str(uuid.uuid4()),
-                vector=embeddings[i].tolist(),
-                payload={**metadata, "text": doc}
-            ))
+        self.index.add(embeddings)
         
-        # Upload to Qdrant
-        self.client.upsert(
-            collection_name=self.collection_name,
-            points=points
-        )
+        for doc, meta, doc_id in zip(documents, metadatas, ids):
+            self.metadata.append({**meta, "text": doc, "id": doc_id})
+        
+        faiss.write_index(self.index, self.index_path)
+        with open(self.metadata_path, 'wb') as f:
+            pickle.dump(self.metadata, f)
     
     def search(self, query: str, n_results: int = 5) -> Dict:
+        if self.index.ntotal == 0:
+            return {"documents": [], "metadatas": [], "distances": []}
+        
         from sentence_transformers import SentenceTransformer
         model = SentenceTransformer('all-MiniLM-L6-v2')
         
-        # Generate query embedding
-        query_embedding = model.encode(query).tolist()
+        query_embedding = model.encode([query])
+        query_embedding = np.array(query_embedding).astype('float32')
         
-        # Search
-        results = self.client.search(
-            collection_name=self.collection_name,
-            query_vector=query_embedding,
-            limit=n_results
-        )
+        distances, indices = self.index.search(query_embedding, min(n_results, self.index.ntotal))
         
-        if not results:
-            return {"documents": [], "metadatas": [], "distances": []}
-        
-        documents = [r.payload.get("text", "") for r in results]
-        metadatas = [{k: v for k, v in r.payload.items() if k != "text"} for r in results]
-        distances = [r.score for r in results]
+        documents = []
+        metadatas = []
+        for idx in indices[0]:
+            if idx < len(self.metadata):
+                meta = self.metadata[idx]
+                documents.append(meta.get("text", ""))
+                metadatas.append({k: v for k, v in meta.items() if k != "text"})
         
         return {
             "documents": documents,
             "metadatas": metadatas,
-            "distances": distances
+            "distances": distances[0].tolist()
         }
     
     def delete_by_source(self, source_id: int):
-        # Delete all points with matching source_id
-        self.client.delete(
-            collection_name=self.collection_name,
-            points_selector={
-                "filter": {
-                    "must": [
-                        {"key": "source_id", "match": {"value": source_id}}
-                    ]
-                }
-            }
-        )
+        new_metadata = [m for m in self.metadata if m.get("source_id") != source_id]
+        if len(new_metadata) < len(self.metadata):
+            self.metadata = new_metadata
+            self.index = faiss.IndexFlatL2(384)
+            if self.metadata:
+                from sentence_transformers import SentenceTransformer
+                model = SentenceTransformer('all-MiniLM-L6-v2')
+                texts = [m["text"] for m in self.metadata]
+                embeddings = model.encode(texts)
+                embeddings = np.array(embeddings).astype('float32')
+                self.index.add(embeddings)
+            faiss.write_index(self.index, self.index_path)
+            with open(self.metadata_path, 'wb') as f:
+                pickle.dump(self.metadata, f)
     
     def count(self) -> int:
-        info = self.client.get_collection(collection_name=self.collection_name)
-        return info.points_count
+        return self.index.ntotal
