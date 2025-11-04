@@ -1,10 +1,9 @@
-from sentence_transformers import SentenceTransformer
 from typing import List, Dict
 import hashlib
 
 class Indexer:
     def __init__(self):
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+        pass  # No model needed
     
     def chunk_text(self, text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
         words = text.split()

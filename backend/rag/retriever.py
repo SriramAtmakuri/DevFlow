@@ -1,82 +1,46 @@
-import faiss
-import numpy as np
 from typing import List, Dict
-import pickle
-import os
 
 class Retriever:
-    def __init__(self, persist_directory: str = "./faiss_db"):
-        self.persist_directory = persist_directory
-        self.index_path = os.path.join(persist_directory, "index.faiss")
-        self.metadata_path = os.path.join(persist_directory, "metadata.pkl")
-        
-        os.makedirs(persist_directory, exist_ok=True)
-        
-        if os.path.exists(self.index_path):
-            self.index = faiss.read_index(self.index_path)
-            with open(self.metadata_path, 'rb') as f:
-                self.metadata = pickle.load(f)
-        else:
-            self.index = faiss.IndexFlatL2(384)
-            self.metadata = []
+    def __init__(self):
+        # Simple in-memory storage (no vector DB)
+        self.documents = []
+        self.metadatas = []
+        self.ids = []
     
     def add_documents(self, documents: List[str], metadatas: List[Dict], ids: List[str]):
-        from sentence_transformers import SentenceTransformer
-        model = SentenceTransformer('all-MiniLM-L6-v2')
-        
-        embeddings = model.encode(documents)
-        embeddings = np.array(embeddings).astype('float32')
-        
-        self.index.add(embeddings)
-        
-        for doc, meta, doc_id in zip(documents, metadatas, ids):
-            self.metadata.append({**meta, "text": doc, "id": doc_id})
-        
-        faiss.write_index(self.index, self.index_path)
-        with open(self.metadata_path, 'wb') as f:
-            pickle.dump(self.metadata, f)
+        self.documents.extend(documents)
+        self.metadatas.extend(metadatas)
+        self.ids.extend(ids)
     
     def search(self, query: str, n_results: int = 5) -> Dict:
-        if self.index.ntotal == 0:
+        # Simple keyword search (no semantic search for now)
+        query_lower = query.lower()
+        results = []
+        
+        for doc, meta in zip(self.documents, self.metadatas):
+            if any(word in doc.lower() for word in query_lower.split()):
+                results.append((doc, meta))
+                if len(results) >= n_results:
+                    break
+        
+        if not results:
             return {"documents": [], "metadatas": [], "distances": []}
         
-        from sentence_transformers import SentenceTransformer
-        model = SentenceTransformer('all-MiniLM-L6-v2')
-        
-        query_embedding = model.encode([query])
-        query_embedding = np.array(query_embedding).astype('float32')
-        
-        distances, indices = self.index.search(query_embedding, min(n_results, self.index.ntotal))
-        
-        documents = []
-        metadatas = []
-        for idx in indices[0]:
-            if idx < len(self.metadata):
-                meta = self.metadata[idx]
-                documents.append(meta.get("text", ""))
-                metadatas.append({k: v for k, v in meta.items() if k != "text"})
+        docs = [r[0] for r in results]
+        metas = [r[1] for r in results]
         
         return {
-            "documents": documents,
-            "metadatas": metadatas,
-            "distances": distances[0].tolist()
+            "documents": docs,
+            "metadatas": metas,
+            "distances": [0.0] * len(docs)
         }
     
     def delete_by_source(self, source_id: int):
-        new_metadata = [m for m in self.metadata if m.get("source_id") != source_id]
-        if len(new_metadata) < len(self.metadata):
-            self.metadata = new_metadata
-            self.index = faiss.IndexFlatL2(384)
-            if self.metadata:
-                from sentence_transformers import SentenceTransformer
-                model = SentenceTransformer('all-MiniLM-L6-v2')
-                texts = [m["text"] for m in self.metadata]
-                embeddings = model.encode(texts)
-                embeddings = np.array(embeddings).astype('float32')
-                self.index.add(embeddings)
-            faiss.write_index(self.index, self.index_path)
-            with open(self.metadata_path, 'wb') as f:
-                pickle.dump(self.metadata, f)
+        indices_to_remove = [i for i, m in enumerate(self.metadatas) if m.get("source_id") == source_id]
+        for index in sorted(indices_to_remove, reverse=True):
+            del self.documents[index]
+            del self.metadatas[index]
+            del self.ids[index]
     
     def count(self) -> int:
-        return self.index.ntotal
+        return len(self.documents)
