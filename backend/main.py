@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import os
 from dotenv import load_dotenv
 
@@ -9,8 +8,6 @@ from database.db import Database
 from rag.indexer import Indexer
 from rag.retriever import Retriever
 from rag.generator import GeminiRAG
-from connectors.bookmarks import BookmarkParser
-from connectors.files import FileConnector
 
 load_dotenv()
 
@@ -29,52 +26,53 @@ indexer = Indexer()
 retriever = Retriever()
 rag = GeminiRAG()
 
-class SearchQuery(BaseModel):
-    query: str
-    n_results: int = 5
-
-class ManualDocument(BaseModel):
-    title: str
-    content: str
-    url: Optional[str] = None
-
 @app.get("/")
 async def root():
     stats = db.get_stats()
     return {"status": "running", "message": "DevFlow API", "stats": stats}
 
 @app.post("/api/search")
-async def search(query: SearchQuery):
+async def search(data: Dict[str, Any]):
     try:
-        results = retriever.search(query.query, query.n_results)
+        query = data.get("query", "")
+        n_results = data.get("n_results", 5)
+        
+        results = retriever.search(query, n_results)
         if not results['documents']:
             return {
                 "answer": "No relevant documents found.",
                 "sources": [],
-                "query": query.query
+                "query": query
             }
         response = rag.generate_answer(
-            query=query.query,
+            query=query,
             context=results['documents'],
             sources=results['metadatas']
         )
-        db.add_search(query.query, len(results['documents']))
-        return {**response, "query": query.query}
+        db.add_search(query, len(results['documents']))
+        return {**response, "query": query}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/index/manual")
-async def add_manual_document(doc: ManualDocument):
+async def add_manual_document(data: Dict[str, Any]):
     try:
-        source_id = db.add_source("manual", None, doc.title)
+        title = data.get("title", "")
+        content = data.get("content", "")
+        url = data.get("url")
+        
+        if not title or not content:
+            raise HTTPException(status_code=400, detail="Title and content required")
+        
+        source_id = db.add_source("manual", None, title)
         chunks, metadatas, ids = indexer.prepare_documents(
-            [doc.content], [doc.title], [doc.url or f"manual_{source_id}"],
+            [content], [title], [url or f"manual_{source_id}"],
             source_id, "manual"
         )
         retriever.add_documents(chunks, metadatas, ids)
         db.update_source_status(source_id, "indexed")
-        doc_id = indexer.generate_id(doc.content)
-        db.add_document(doc_id, source_id, doc.title, doc.url)
+        doc_id = indexer.generate_id(content)
+        db.add_document(doc_id, source_id, title, url)
         return {"success": True, "message": "Document added", "source_id": source_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
