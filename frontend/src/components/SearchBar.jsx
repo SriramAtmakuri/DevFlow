@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Search } from 'lucide-react';
 
 function SearchBar({ onSearch, loading }) {
   const [query, setQuery] = useState('');
@@ -23,6 +24,7 @@ function SearchBar({ onSearch, loading }) {
         className="btn btn-primary"
         disabled={loading || !query.trim()}
       >
+        <Search size={20} />
         {loading ? 'Searching...' : 'Search'}
       </button>
     </form>

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Search, BookOpen } from 'lucide-react';
 import SearchBar from './components/SearchBar';
 import ResultCard from './components/ResultCard';
 import SourceManager from './components/SourceManager';
@@ -29,7 +30,10 @@ function App() {
   return (
     <div className="container">
       <div className="header">
-        <h1>🧠 DevFlow</h1>
+        <h1>
+          <BookOpen size={48} />
+          DevFlow
+        </h1>
         <p>Your Personal Coding Knowledge Base</p>
       </div>
 
@@ -39,13 +43,15 @@ function App() {
             className={`tab ${activeTab === 'search' ? 'active' : ''}`}
             onClick={() => setActiveTab('search')}
           >
-            🔍 Search
+            <Search size={20} />
+            Search
           </button>
           <button 
             className={`tab ${activeTab === 'sources' ? 'active' : ''}`}
             onClick={() => setActiveTab('sources')}
           >
-            📚 Sources
+            <BookOpen size={20} />
+            Sources
           </button>
         </div>
 

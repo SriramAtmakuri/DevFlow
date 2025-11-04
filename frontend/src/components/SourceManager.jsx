@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Plus, Trash2, FolderOpen } from 'lucide-react';
 import { getSources, deleteSource, addManualDocument } from '../api/client';
 
 function SourceManager() {
@@ -83,16 +84,19 @@ function SourceManager() {
             />
           </div>
           <button type="submit" className="btn btn-primary" disabled={loading}>
+            <Plus size={20} />
             {loading ? 'Adding...' : 'Add Document'}
           </button>
         </form>
       </div>
 
-      <h3>Your Sources ({sources.length})</h3>
+      <h3 style={{ marginBottom: '20px', color: '#111827' }}>
+        Your Sources ({sources.length})
+      </h3>
       <div className="sources-list">
         {sources.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-state-icon">📁</div>
+            <FolderOpen size={64} style={{ opacity: 0.3, marginBottom: '20px' }} />
             <p>No sources yet. Add your first document above!</p>
           </div>
         ) : (
@@ -109,6 +113,7 @@ function SourceManager() {
                 className="btn btn-danger"
                 onClick={() => handleDelete(source.id)}
               >
+                <Trash2 size={16} />
                 Delete
               </button>
             </div>
