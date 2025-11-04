@@ -37,12 +37,6 @@ function ResultCard({ result }) {
           ))}
         </div>
       )}
-
-      {result.model && (
-        <div style={{ marginTop: '15px', fontSize: '0.85rem', color: '#9ca3af' }}>
-          Powered by {result.model}
-        </div>
-      )}
     </div>
   );
 }
