@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, FolderOpen } from 'lucide-react';
 import { getSources, deleteSource, addManualDocument } from '../api/client';
+import FileUpload from './FileUpload';
 
 function SourceManager() {
   const [sources, setSources] = useState([]);
@@ -48,8 +49,18 @@ function SourceManager() {
 
   return (
     <div>
+      {/* File Upload Section */}
+      <FileUpload onUploadSuccess={loadSources} />
+
+      <div style={{ 
+        height: '2px', 
+        background: 'linear-gradient(to right, #e5e7eb, transparent)',
+        margin: '30px 0' 
+      }} />
+
+      {/* Manual Entry Section */}
       <div className="add-source-form">
-        <h3>Add New Document</h3>
+        <h3>Or Add Manually</h3>
         <form onSubmit={handleAddSource}>
           <div className="form-group">
             <label>Title</label>
@@ -90,14 +101,14 @@ function SourceManager() {
         </form>
       </div>
 
-      <h3 style={{ marginBottom: '20px', color: '#111827' }}>
+      <h3 style={{ marginTop: '40px', marginBottom: '20px', color: '#111827' }}>
         Your Sources ({sources.length})
       </h3>
       <div className="sources-list">
         {sources.length === 0 ? (
           <div className="empty-state">
             <FolderOpen size={64} style={{ opacity: 0.3, marginBottom: '20px' }} />
-            <p>No sources yet. Add your first document above!</p>
+            <p>No sources yet. Upload a file or add a document above!</p>
           </div>
         ) : (
           sources.map((source) => (
@@ -125,3 +136,4 @@ function SourceManager() {
 }
 
 export default SourceManager;
+EOF
