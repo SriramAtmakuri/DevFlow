@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import UploadFile, File
+from connectors.file_upload import FileProcessor
 from typing import List, Optional, Dict, Any
 import os
 from dotenv import load_dotenv
@@ -102,6 +104,57 @@ async def get_stats():
         return stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """Upload and index a file (PDF, DOCX, TXT)"""
+    try:
+        # Read file
+        file_bytes = await file.read()
+        
+        # Validate file size (max 10MB)
+        if len(file_bytes) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="File too large. Max size is 10MB.")
+        
+        # Process file and extract text
+        text, file_type = FileProcessor.process_file(file.filename, file_bytes)
+        
+        if not text or len(text.strip()) < 10:
+            raise HTTPException(status_code=400, detail="Could not extract text from file or file is empty.")
+        
+        # Create source
+        source_id = db.add_source("file", file.filename, file.filename)
+        
+        # Index the document
+        chunks, metadatas, ids = indexer.prepare_documents(
+            [text],
+            [file.filename],
+            [file.filename],
+            source_id,
+            "file"
+        )
+        
+        retriever.add_documents(chunks, metadatas, ids)
+        db.update_source_status(source_id, "indexed")
+        
+        # Add to database
+        doc_id = indexer.generate_id(text)
+        db.add_document(doc_id, source_id, file.filename, file.filename)
+        
+        return {
+            "success": True,
+            "message": f"Successfully uploaded and indexed {file.filename}",
+            "file_type": file_type,
+            "source_id": source_id,
+            "chunks": len(chunks),
+            "text_length": len(text)
+        }
+    
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
