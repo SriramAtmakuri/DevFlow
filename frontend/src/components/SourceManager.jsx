@@ -136,4 +136,3 @@ function SourceManager() {
 }
 
 export default SourceManager;
-EOF
