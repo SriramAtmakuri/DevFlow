@@ -337,7 +337,6 @@ Now searchable in future queries!
 
 ### Accuracy
 - **Document Retrieval:** ~90% relevance (semantic search)
-- **Answer Quality:** Depends on Gemini model and source quality
 - **Source Attribution:** 100% (always cites sources used)
 
 ---
