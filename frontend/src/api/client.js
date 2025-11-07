@@ -12,6 +12,21 @@ export const searchDocuments = async (query, nResults = 5) => {
   return response.data;
 };
 
+// NEW: Hybrid search (docs + web)
+export const hybridSearch = async (query, useWeb = true) => {
+  const response = await api.post('/search/hybrid', { 
+    query,
+    use_web: useWeb 
+  });
+  return response.data;
+};
+
+// NEW: Save web result
+export const saveWebResult = async (result) => {
+  const response = await api.post('/save-web-result', result);
+  return response.data;
+};
+
 export const addManualDocument = async (title, content, url = null) => {
   const response = await api.post('/index/manual', { title, content, url });
   return response.data;

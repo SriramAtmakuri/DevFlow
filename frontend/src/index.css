@@ -393,6 +393,26 @@ body {
   font-size: 1.3rem;
 }
 
+.web-source {
+  background: #f0f9ff !important;
+  border-left: 3px solid #3b82f6 !important;
+  padding: 16px !important;
+  display: flex !important;
+  gap: 16px !important;
+  align-items: flex-start !important;
+}
+
+.btn-success {
+  background: #10b981;
+  color: white;
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.btn-success:hover {
+  background: #10b981;
+}
+
 @media (max-width: 768px) {
   .header h1 {
     font-size: 2rem;

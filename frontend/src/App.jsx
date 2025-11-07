@@ -4,7 +4,7 @@ import SearchBar from './components/SearchBar';
 import ResultCard from './components/ResultCard';
 import SourceManager from './components/SourceManager';
 import Stats from './components/Stats';
-import { searchDocuments } from './api/client';
+import { hybridSearch } from './api/client';  
 
 function App() {
   const [activeTab, setActiveTab] = useState('search');
@@ -12,13 +12,13 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const handleSearch = async (query) => {
+  const handleSearch = async (query, useWeb = true) => {  
     setLoading(true);
     setError(null);
     setSearchResult(null);
 
     try {
-      const result = await searchDocuments(query);
+      const result = await hybridSearch(query, useWeb); 
       setSearchResult(result);
     } catch (err) {
       setError(err.message || 'Search failed');
