@@ -5,11 +5,14 @@ from connectors.file_upload import FileProcessor
 from typing import List, Optional, Dict, Any
 import os
 from dotenv import load_dotenv
+from connectors.web_search import WebSearcher
 
 from database.db import Database
 from rag.indexer import Indexer
 from rag.retriever import Retriever
 from rag.generator import GeminiRAG
+
+web_searcher = WebSearcher()
 
 load_dotenv()
 
@@ -155,6 +158,121 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+
+@app.post("/api/search/hybrid")
+async def hybrid_search(data: Dict[str, Any]):
+    """
+    Hybrid search: Search docs first, then web if needed
+    Returns both doc and web sources with save option
+    """
+    try:
+        query = data.get("query", "")
+        n_results = data.get("n_results", 5)
+        use_web = data.get("use_web", True)  # Enable web search by default
+        
+        # Search local documents first
+        doc_results = retriever.search(query, n_results)
+        doc_sources = doc_results['documents'] if doc_results['documents'] else []
+        
+        web_sources = []
+        web_results = []
+        
+        # If not enough doc results, search web
+        if use_web and len(doc_sources) < 2:
+            print(f"🌐 Searching web for: {query}")
+            web_results = web_searcher.search_and_scrape(query, count=3)
+            
+            if web_results:
+                # Extract content for RAG
+                web_sources = [result["content"] for result in web_results]
+        
+        # Combine sources for answer generation
+        all_sources = doc_sources + web_sources
+        
+        if not all_sources:
+            return {
+                "answer": "No relevant information found in your documents or on the web.",
+                "doc_sources": [],
+                "web_sources": [],
+                "query": query
+            }
+        
+        # Prepare metadata
+        doc_metadata = doc_results['metadatas'] if doc_results['metadatas'] else []
+        web_metadata = [
+            {
+                "title": r["title"],
+                "url": r["url"],
+                "source": "web"
+            }
+            for r in web_results
+        ]
+        
+        all_metadata = doc_metadata + web_metadata
+        
+        # Generate answer using all sources
+        response = rag.generate_answer(
+            query=query,
+            context=all_sources,
+            sources=all_metadata
+        )
+        
+        # Add source info to response
+        response["doc_sources"] = doc_metadata
+        response["web_sources"] = web_metadata
+        response["web_results_full"] = web_results  # Full results for saving
+        response["query"] = query
+        
+        # Log search
+        db.add_search(query, len(all_sources))
+        
+        return response
+    
+    except Exception as e:
+        print(f"Hybrid search error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/save-web-result")
+async def save_web_result(data: Dict[str, Any]):
+    """Save a web search result to knowledge base"""
+    try:
+        title = data.get("title", "")
+        url = data.get("url", "")
+        content = data.get("content", "")
+        
+        if not title or not content:
+            raise HTTPException(status_code=400, detail="Title and content required")
+        
+        # Create source
+        source_id = db.add_source("web", url, title)
+        
+        # Index the document
+        chunks, metadatas, ids = indexer.prepare_documents(
+            [content],
+            [title],
+            [url],
+            source_id,
+            "web"
+        )
+        
+        retriever.add_documents(chunks, metadatas, ids)
+        db.update_source_status(source_id, "indexed")
+        
+        # Add to database
+        doc_id = indexer.generate_id(content)
+        db.add_document(doc_id, source_id, title, url)
+        
+        return {
+            "success": True,
+            "message": f"Saved '{title}' to knowledge base",
+            "source_id": source_id
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
