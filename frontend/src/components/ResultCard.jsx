@@ -64,7 +64,7 @@ function ResultCard({ result }) {
 
       {/* Web Sources */}
       {webSources.length > 0 && (
-        <div className="sources-section">
+        <div className="sources-section" style={{ marginTop: '30px' }}>
           <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Globe size={18} />
             From the Web ({webSources.length})

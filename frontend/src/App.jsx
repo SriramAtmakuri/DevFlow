@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Search, BookOpen } from 'lucide-react';
+import { Search, BookOpen, Brain } from 'lucide-react';
 import SearchBar from './components/SearchBar';
 import ResultCard from './components/ResultCard';
 import SourceManager from './components/SourceManager';
 import Stats from './components/Stats';
 import { hybridSearch } from './api/client';  
+
+console.log('App loaded!');
 
 function App() {
   const [activeTab, setActiveTab] = useState('search');
@@ -31,7 +33,7 @@ function App() {
     <div className="container">
       <div className="header">
         <h1>
-          <BookOpen size={48} />
+          <Brain size={48} />
           DevFlow
         </h1>
         <p>Your Personal Coding Knowledge Base</p>

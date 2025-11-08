@@ -267,6 +267,11 @@ body {
   color: #6b7280;
 }
 
+.empty-state::before,
+.empty-state::after {
+  display: none !important;
+}
+
 .form-group { 
   margin-bottom: 20px; 
 }
@@ -322,15 +327,19 @@ body {
 }
 
 .stat-value { 
-  font-size: 2.5rem; 
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: 2.5rem;
   font-weight: 700; 
-  margin-bottom: 8px; 
 }
 
 .stat-label { 
   font-size: 0.95rem; 
   opacity: 0.95; 
   font-weight: 500;
+  color: #1f2937;
 }
 
 .sources-list { 
@@ -411,6 +420,55 @@ body {
 
 .btn-success:hover {
   background: #10b981;
+}
+
+/* Gradient Background */
+body {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  background-attachment: fixed;
+}
+
+.container {
+  backdrop-filter: blur(10px);
+}
+
+/* Glassmorphism Cards */
+.stat-card, .source-card, .result-card {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(10px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  transition: all 0.3s ease !important;
+}
+
+.stat-card:hover, .source-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 12px 48px rgba(102, 126, 234, 0.3);
+  border-color: rgba(102, 126, 234, 0.5) !important;
+}
+
+/* Gradient Buttons */
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+  border: none !important;
+  transition: all 0.3s ease !important;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
+}
+
+/* Gradient Headers */
+h1, h2 {
+  background: linear-gradient(135deg, #667eea 0%, #f093fb 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Smooth Transitions */
+* {
+  transition: all 0.2s ease;
 }
 
 @media (max-width: 768px) {
