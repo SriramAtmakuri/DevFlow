@@ -1,278 +1,285 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi import UploadFile, File
-from connectors.file_upload import FileProcessor
-from typing import List, Optional, Dict, Any
 import os
+import sys
+import uuid
 from dotenv import load_dotenv
-from connectors.web_search import WebSearcher
+
+load_dotenv()
+
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request, BackgroundTasks, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from database.db import Database
 from rag.indexer import Indexer
 from rag.retriever import Retriever
+from rag.reranker import Reranker
 from rag.generator import GeminiRAG
+from connectors.web_search import WebSearcher
+from connectors.file_upload import FileProcessor, validate_upload
+from models.schemas import (
+    SearchRequest, HybridSearchRequest, ManualDocumentRequest,
+    SaveWebResultRequest, IndexResponse, UploadResponse,
+    StatsResponse, UserRegisterRequest, UserLoginRequest, TokenResponse,
+    JobStatusResponse,
+)
+from auth.auth import init_users_table, register_user, authenticate_user, create_access_token, revoke_token
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-web_searcher = WebSearcher()
+_bearer = HTTPBearer(auto_error=False)
+from cache.redis_cache import make_cache_key, get_cached, set_cached
+from graphql_schema import graphql_router
+from routers import chat, history, analytics, collections
 
-load_dotenv()
+# ── Logging ───────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="DevFlow API")
+os.makedirs("logs", exist_ok=True)
+logger.remove()
+logger.add(sys.stdout, format="{time:HH:mm:ss} | {level:<8} | {message}", level="INFO", colorize=True)
+logger.add("logs/app.log", rotation="50 MB", retention="14 days", level="INFO", serialize=True)
 
+# ── Rate limiter ──────────────────────────────────────────────────────────────
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+
+# ── App ───────────────────────────────────────────────────────────────────────
+
+app = FastAPI(title="DevFlow API", version="2.1.0",
+              description="Production RAG knowledge base with streaming, multi-model, reranking")
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+_allowed_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+app.include_router(graphql_router, prefix="/graphql")
+app.include_router(chat.router)
+app.include_router(history.router)
+app.include_router(analytics.router)
+app.include_router(collections.router)
+
+# ── Services ──────────────────────────────────────────────────────────────────
+
 db = Database()
 indexer = Indexer()
 retriever = Retriever()
+reranker = Reranker()
 rag = GeminiRAG()
+web_searcher = WebSearcher()
+
+init_users_table()
+logger.info("DevFlow API v2.1.0 started")
+
+# ── Background job ────────────────────────────────────────────────────────────
+
+def _index_file_task(job_id: str, filename: str, file_bytes: bytes):
+    try:
+        text, file_type = FileProcessor.process_file(filename, file_bytes)
+        if not text or len(text.strip()) < 10:
+            db.update_job(job_id, "failed", error="Could not extract text")
+            return
+        source_id = db.add_source("file", filename, filename)
+        chunks, embeddings, metadatas, ids = indexer.prepare_documents(
+            [text], [filename], [filename], source_id, "file",
+        )
+        retriever.add_documents(chunks, embeddings, metadatas, ids)
+        db.update_source_status(source_id, "indexed")
+        db.add_document(indexer.generate_id(text), source_id, filename, filename)
+        db.update_job(job_id, "completed", chunks=len(chunks))
+        logger.info(f"Job {job_id}: indexed {filename} → {len(chunks)} chunks")
+    except Exception as e:
+        db.update_job(job_id, "failed", error=str(e))
+        logger.error(f"Job {job_id} failed: {e}")
+
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+@app.post("/api/auth/register", response_model=TokenResponse)
+@limiter.limit("5/minute")
+async def register(request: Request, data: UserRegisterRequest):
+    user = register_user(data.email, data.username, data.password)
+    token = create_access_token({"sub": str(user["id"]), "username": user["username"]})
+    return TokenResponse(access_token=token, user_id=user["id"], username=user["username"])
+
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+@limiter.limit("5/minute")
+async def login(request: Request, data: UserLoginRequest):
+    user = authenticate_user(data.email, data.password)
+    token = create_access_token({"sub": str(user["id"]), "username": user["username"]})
+    return TokenResponse(access_token=token, user_id=user["id"], username=user["username"])
+
+
+@app.post("/api/auth/logout")
+async def logout(credentials: HTTPAuthorizationCredentials = Depends(_bearer)):
+    if credentials:
+        revoke_token(credentials.credentials)
+    return {"success": True}
+
+
+# ── Health ────────────────────────────────────────────────────────────────────
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 
 @app.get("/")
 async def root():
-    stats = db.get_stats()
-    return {"status": "running", "message": "DevFlow API", "stats": stats}
+    return {"status": "running", "version": "2.1.0", "stats": db.get_stats()}
+
+
+# ── Search ────────────────────────────────────────────────────────────────────
 
 @app.post("/api/search")
-async def search(data: Dict[str, Any]):
-    try:
-        query = data.get("query", "")
-        n_results = data.get("n_results", 5)
-        
-        results = retriever.search(query, n_results)
-        if not results['documents']:
-            return {
-                "answer": "No relevant documents found.",
-                "sources": [],
-                "query": query
-            }
-        response = rag.generate_answer(
-            query=query,
-            context=results['documents'],
-            sources=results['metadatas']
-        )
-        db.add_search(query, len(results['documents']))
-        return {**response, "query": query}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@limiter.limit("30/minute")
+async def search(request: Request, data: SearchRequest):
+    cache_key = make_cache_key("search", {"q": data.query, "n": data.n_results, "m": data.model})
+    cached = get_cached(cache_key)
+    if cached:
+        cached["cached"] = True
+        return cached
 
-@app.post("/api/index/manual")
-async def add_manual_document(data: Dict[str, Any]):
-    try:
-        title = data.get("title", "")
-        content = data.get("content", "")
-        url = data.get("url")
-        
-        if not title or not content:
-            raise HTTPException(status_code=400, detail="Title and content required")
-        
-        source_id = db.add_source("manual", None, title)
-        chunks, metadatas, ids = indexer.prepare_documents(
-            [content], [title], [url or f"manual_{source_id}"],
-            source_id, "manual"
-        )
-        retriever.add_documents(chunks, metadatas, ids)
-        db.update_source_status(source_id, "indexed")
-        doc_id = indexer.generate_id(content)
-        db.add_document(doc_id, source_id, title, url)
-        return {"success": True, "message": "Document added", "source_id": source_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    results = retriever.search(data.query, data.n_results)
+    documents, metadatas = results["documents"] or [], results["metadatas"] or []
+
+    if documents and data.rerank:
+        documents, metadatas = reranker.rerank(data.query, documents, metadatas)
+
+    if not documents:
+        return {"answer": "No relevant documents found.", "sources": [], "query": data.query, "cached": False}
+
+    response = rag.generate_answer(query=data.query, context=documents, sources=metadatas, model=data.model)
+    response.update({"query": data.query, "cached": False})
+    db.add_search(data.query, len(documents), cached=False, model=data.model)
+    set_cached(cache_key, response)
+    logger.info(f"Search: '{data.query[:60]}' → {len(documents)} docs, model={data.model}")
+    return response
+
+
+@app.post("/api/search/hybrid")
+@limiter.limit("30/minute")
+async def hybrid_search(request: Request, data: HybridSearchRequest):
+    cache_key = make_cache_key("hybrid", {"q": data.query, "web": data.use_web, "m": data.model})
+    cached = get_cached(cache_key)
+    if cached:
+        cached["cached"] = True
+        return cached
+
+    doc_results = retriever.search(data.query, data.n_results)
+    documents = doc_results["documents"] or []
+    metadatas = doc_results["metadatas"] or []
+
+    if documents and data.rerank:
+        documents, metadatas = reranker.rerank(data.query, documents, metadatas)
+
+    web_sources, web_results = [], []
+    if data.use_web and len(documents) < 2:
+        web_results = web_searcher.search_and_scrape(data.query, count=3)
+        web_sources = [r["content"] for r in web_results]
+
+    all_sources = documents + web_sources
+    if not all_sources:
+        return {"answer": "No relevant information found.", "doc_sources": [], "web_sources": [],
+                "query": data.query, "cached": False}
+
+    web_meta = [{"title": r["title"], "url": r["url"], "source": "web"} for r in web_results]
+    response = rag.generate_answer(
+        query=data.query, context=all_sources,
+        sources=metadatas + web_meta, model=data.model,
+    )
+    response.update({
+        "doc_sources": metadatas, "web_sources": web_meta,
+        "web_results_full": web_results, "query": data.query, "cached": False,
+    })
+    db.add_search(data.query, len(all_sources), cached=False, model=data.model)
+    set_cached(cache_key, response)
+    return response
+
+
+# ── Sources ───────────────────────────────────────────────────────────────────
+
+@app.post("/api/index/manual", response_model=IndexResponse)
+async def add_manual_document(data: ManualDocumentRequest):
+    source_id = db.add_source("manual", None, data.title)
+    chunks, embeddings, metadatas, ids = indexer.prepare_documents(
+        [data.content], [data.title], [data.url or f"manual_{source_id}"], source_id, "manual",
+    )
+    retriever.add_documents(chunks, embeddings, metadatas, ids)
+    db.update_source_status(source_id, "indexed")
+    db.add_document(indexer.generate_id(data.content), source_id, data.title, data.url)
+    if data.collection_id:
+        db.add_source_to_collection(source_id, data.collection_id)
+    return IndexResponse(success=True, message="Document added", source_id=source_id)
+
 
 @app.get("/api/sources")
-async def get_sources():
-    try:
-        sources = db.get_sources()
-        return {"sources": sources}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def get_sources(collection_id: int = None, limit: int = 50, offset: int = 0):
+    return {"sources": db.get_sources(collection_id=collection_id, limit=limit, offset=offset)}
+
 
 @app.delete("/api/sources/{source_id}")
 async def delete_source(source_id: int):
-    try:
-        retriever.delete_by_source(source_id)
-        db.delete_source(source_id)
-        return {"success": True, "message": "Source deleted"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    retriever.delete_by_source(source_id)
+    db.delete_source(source_id)
+    return {"success": True}
 
-@app.get("/api/stats")
+
+@app.get("/api/stats", response_model=StatsResponse)
 async def get_stats():
-    try:
-        stats = db.get_stats()
-        stats['chromadb_count'] = retriever.count()
-        return stats
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    stats = db.get_stats()
+    stats["chromadb_count"] = retriever.count()
+    return stats
 
 
-@app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
-    """Upload and index a file (PDF, DOCX, TXT)"""
+@app.post("/api/upload", response_model=UploadResponse)
+@limiter.limit("10/minute")
+async def upload_file(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    file_bytes = await file.read()
     try:
-        # Read file
-        file_bytes = await file.read()
-        
-        # Validate file size (max 10MB)
-        if len(file_bytes) > 10 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail="File too large. Max size is 10MB.")
-        
-        # Process file and extract text
-        text, file_type = FileProcessor.process_file(file.filename, file_bytes)
-        
-        if not text or len(text.strip()) < 10:
-            raise HTTPException(status_code=400, detail="Could not extract text from file or file is empty.")
-        
-        # Create source
-        source_id = db.add_source("file", file.filename, file.filename)
-        
-        # Index the document
-        chunks, metadatas, ids = indexer.prepare_documents(
-            [text],
-            [file.filename],
-            [file.filename],
-            source_id,
-            "file"
-        )
-        
-        retriever.add_documents(chunks, metadatas, ids)
-        db.update_source_status(source_id, "indexed")
-        
-        # Add to database
-        doc_id = indexer.generate_id(text)
-        db.add_document(doc_id, source_id, file.filename, file.filename)
-        
-        return {
-            "success": True,
-            "message": f"Successfully uploaded and indexed {file.filename}",
-            "file_type": file_type,
-            "source_id": source_id,
-            "chunks": len(chunks),
-            "text_length": len(text)
-        }
-    
+        validate_upload(file.filename or "", file_bytes)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
-@app.post("/api/search/hybrid")
-async def hybrid_search(data: Dict[str, Any]):
-    """
-    Hybrid search: Search docs first, then web if needed
-    Returns both doc and web sources with save option
-    """
-    try:
-        query = data.get("query", "")
-        n_results = data.get("n_results", 5)
-        use_web = data.get("use_web", True)  # Enable web search by default
-        
-        # Search local documents first
-        doc_results = retriever.search(query, n_results)
-        doc_sources = doc_results['documents'] if doc_results['documents'] else []
-        
-        web_sources = []
-        web_results = []
-        
-        # If not enough doc results, search web
-        if use_web and len(doc_sources) < 2:
-            print(f"🌐 Searching web for: {query}")
-            web_results = web_searcher.search_and_scrape(query, count=3)
-            
-            if web_results:
-                # Extract content for RAG
-                web_sources = [result["content"] for result in web_results]
-        
-        # Combine sources for answer generation
-        all_sources = doc_sources + web_sources
-        
-        if not all_sources:
-            return {
-                "answer": "No relevant information found in your documents or on the web.",
-                "doc_sources": [],
-                "web_sources": [],
-                "query": query
-            }
-        
-        # Prepare metadata
-        doc_metadata = doc_results['metadatas'] if doc_results['metadatas'] else []
-        web_metadata = [
-            {
-                "title": r["title"],
-                "url": r["url"],
-                "source": "web"
-            }
-            for r in web_results
-        ]
-        
-        all_metadata = doc_metadata + web_metadata
-        
-        # Generate answer using all sources
-        response = rag.generate_answer(
-            query=query,
-            context=all_sources,
-            sources=all_metadata
-        )
-        
-        # Add source info to response
-        response["doc_sources"] = doc_metadata
-        response["web_sources"] = web_metadata
-        response["web_results_full"] = web_results  # Full results for saving
-        response["query"] = query
-        
-        # Log search
-        db.add_search(query, len(all_sources))
-        
-        return response
-    
-    except Exception as e:
-        print(f"Hybrid search error: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    job_id = str(uuid.uuid4())
+    db.create_job(job_id, file.filename)
+    background_tasks.add_task(_index_file_task, job_id, file.filename, file_bytes)
+
+    logger.info(f"Upload queued: {file.filename} → job {job_id}")
+    return UploadResponse(success=True, message=f"Upload queued: {file.filename}", job_id=job_id)
 
 
-@app.post("/api/save-web-result")
-async def save_web_result(data: Dict[str, Any]):
-    """Save a web search result to knowledge base"""
-    try:
-        title = data.get("title", "")
-        url = data.get("url", "")
-        content = data.get("content", "")
-        
-        if not title or not content:
-            raise HTTPException(status_code=400, detail="Title and content required")
-        
-        # Create source
-        source_id = db.add_source("web", url, title)
-        
-        # Index the document
-        chunks, metadatas, ids = indexer.prepare_documents(
-            [content],
-            [title],
-            [url],
-            source_id,
-            "web"
-        )
-        
-        retriever.add_documents(chunks, metadatas, ids)
-        db.update_source_status(source_id, "indexed")
-        
-        # Add to database
-        doc_id = indexer.generate_id(content)
-        db.add_document(doc_id, source_id, title, url)
-        
-        return {
-            "success": True,
-            "message": f"Saved '{title}' to knowledge base",
-            "source_id": source_id
-        }
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/api/upload/status/{job_id}", response_model=JobStatusResponse)
+async def upload_status(job_id: str):
+    job = db.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return JobStatusResponse(
+        job_id=job_id, status=job["status"], filename=job["filename"],
+        chunks=job["chunks"], error=job.get("error"),
+    )
+
+
+@app.post("/api/save-web-result", response_model=IndexResponse)
+async def save_web_result(data: SaveWebResultRequest):
+    source_id = db.add_source("web", data.url, data.title)
+    chunks, embeddings, metadatas, ids = indexer.prepare_documents(
+        [data.content], [data.title], [data.url], source_id, "web",
+    )
+    retriever.add_documents(chunks, embeddings, metadatas, ids)
+    db.update_source_status(source_id, "indexed")
+    db.add_document(indexer.generate_id(data.content), source_id, data.title, data.url)
+    return IndexResponse(success=True, message=f"Saved '{data.title}'", source_id=source_id)
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,46 +1,68 @@
+import os
 from typing import List, Dict
+import chromadb
+from chromadb.config import Settings
+from rag.indexer import get_embedding_model
+
+CHROMA_PATH = os.getenv("CHROMA_PATH", "./chroma_db")
+
 
 class Retriever:
     def __init__(self):
-        # Simple in-memory storage (no vector DB)
-        self.documents = []
-        self.metadatas = []
-        self.ids = []
-    
-    def add_documents(self, documents: List[str], metadatas: List[Dict], ids: List[str]):
-        self.documents.extend(documents)
-        self.metadatas.extend(metadatas)
-        self.ids.extend(ids)
-    
+        self.client = chromadb.PersistentClient(
+            path=CHROMA_PATH,
+            settings=Settings(anonymized_telemetry=False),
+        )
+        self.collection = self.client.get_or_create_collection(
+            name="devflow_docs",
+            metadata={"hnsw:space": "cosine"},
+        )
+        self.model = get_embedding_model()
+
+    def add_documents(
+        self,
+        documents: List[str],
+        embeddings: List[List[float]],
+        metadatas: List[Dict],
+        ids: List[str],
+    ):
+        if not documents:
+            return
+        existing = set(self.collection.get(ids=ids)["ids"])
+        new_idx = [i for i, id_ in enumerate(ids) if id_ not in existing]
+        if not new_idx:
+            return
+        self.collection.add(
+            documents=[documents[i] for i in new_idx],
+            embeddings=[embeddings[i] for i in new_idx],
+            metadatas=[metadatas[i] for i in new_idx],
+            ids=[ids[i] for i in new_idx],
+        )
+
     def search(self, query: str, n_results: int = 5) -> Dict:
-        # Simple keyword search (no semantic search for now)
-        query_lower = query.lower()
-        results = []
-        
-        for doc, meta in zip(self.documents, self.metadatas):
-            if any(word in doc.lower() for word in query_lower.split()):
-                results.append((doc, meta))
-                if len(results) >= n_results:
-                    break
-        
-        if not results:
+        count = self.collection.count()
+        if count == 0:
             return {"documents": [], "metadatas": [], "distances": []}
-        
-        docs = [r[0] for r in results]
-        metas = [r[1] for r in results]
-        
+        query_embedding = self.model.encode([query]).tolist()
+        n = min(n_results, count)
+        results = self.collection.query(
+            query_embeddings=query_embedding,
+            n_results=n,
+            include=["documents", "metadatas", "distances"],
+        )
         return {
-            "documents": docs,
-            "metadatas": metas,
-            "distances": [0.0] * len(docs)
+            "documents": results["documents"][0] if results["documents"] else [],
+            "metadatas": results["metadatas"][0] if results["metadatas"] else [],
+            "distances": results["distances"][0] if results["distances"] else [],
         }
-    
+
     def delete_by_source(self, source_id: int):
-        indices_to_remove = [i for i, m in enumerate(self.metadatas) if m.get("source_id") == source_id]
-        for index in sorted(indices_to_remove, reverse=True):
-            del self.documents[index]
-            del self.metadatas[index]
-            del self.ids[index]
-    
+        results = self.collection.get(
+            where={"source_id": source_id},
+            include=["documents"],
+        )
+        if results["ids"]:
+            self.collection.delete(ids=results["ids"])
+
     def count(self) -> int:
-        return len(self.documents)
+        return self.collection.count()

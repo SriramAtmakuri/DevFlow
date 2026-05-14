@@ -1,14 +1,38 @@
-import PyPDF2
+from pypdf import PdfReader
 import docx
 import io
 from typing import Tuple
 
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+ALLOWED_EXTENSIONS = {"pdf", "docx", "txt"}
+
+# Magic bytes: PDF=%PDF, DOCX/ZIP=PK\x03\x04
+_MAGIC: dict[bytes, str] = {
+    b"%PDF": "pdf",
+    b"PK\x03\x04": "docx",
+}
+
+
+def validate_upload(filename: str, file_bytes: bytes) -> str:
+    if len(file_bytes) > MAX_FILE_SIZE:
+        raise ValueError("File exceeds 10 MB limit")
+    if not filename or "." not in filename:
+        raise ValueError("Filename must have an extension")
+    ext = filename.rsplit(".", 1)[-1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise ValueError(f"Unsupported type '{ext}'. Allowed: pdf, docx, txt")
+    if ext == "pdf" and file_bytes[:4] != b"%PDF":
+        raise ValueError("File content does not match PDF format")
+    if ext == "docx" and file_bytes[:4] != b"PK\x03\x04":
+        raise ValueError("File content does not match DOCX format")
+    return ext
+
+
 class FileProcessor:
     @staticmethod
     def extract_text_from_pdf(file_bytes: bytes) -> str:
-        """Extract text from PDF file"""
         try:
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+            pdf_reader = PdfReader(io.BytesIO(file_bytes))
             text = ""
             for page in pdf_reader.pages:
                 text += page.extract_text() + "\n"

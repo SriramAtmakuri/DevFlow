@@ -1,10 +1,40 @@
 fastapi==0.109.2
-uvicorn==0.27.1
-google-generativeai==0.8.3
-python-multipart==0.0.6
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
 python-dotenv==1.0.0
-pypdf2==3.0.1
+pypdf==4.3.1
 python-docx==1.1.0
 requests==2.32.3
 beautifulsoup4==4.12.3
 lxml==5.1.0
+
+# AI / RAG
+langchain==0.3.7
+langchain-google-genai==2.0.7
+langchain-community==0.3.7
+langchain-chroma==0.1.4
+chromadb==0.5.23
+sentence-transformers==3.3.1
+
+# Multi-model support (optional — set API keys to enable)
+langchain-anthropic==0.3.0
+langchain-openai==0.3.0
+
+# Caching
+redis[hiredis]==5.2.0
+
+# Auth
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# GraphQL
+strawberry-graphql[fastapi]==0.244.0
+
+# Rate limiting + logging
+slowapi==0.1.9
+loguru==0.7.2
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.24.0
+httpx==0.27.2
