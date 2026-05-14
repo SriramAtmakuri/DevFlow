@@ -6,6 +6,7 @@ import Navbar from '@/components/Navbar'
 import MarkdownRenderer from '@/components/MarkdownRenderer'
 import { useSelector } from 'react-redux'
 import type { RootState } from '@/store'
+import { useGetCollectionsQuery } from '@/store/api/devflowApi'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 const MODELS = [
@@ -19,6 +20,9 @@ interface Message { role: 'user' | 'assistant'; content: string }
 
 export default function ChatPage() {
   const { token } = useSelector((s: RootState) => s.auth)
+  const { data: collectionsData } = useGetCollectionsQuery()
+  const [collectionId, setCollectionId] = useState<string>('')
+  const [useHyde, setUseHyde] = useState(false)
   const [messages, setMessages] = useState<Message[]>(() => {
     if (typeof window === 'undefined') return []
     try {
@@ -57,7 +61,14 @@ export default function ChatPage() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ message: msg, session_id: sessionId, model, use_web: useWeb }),
+        body: JSON.stringify({
+          message: msg,
+          session_id: sessionId,
+          model,
+          use_web: useWeb,
+          use_hyde: useHyde,
+          collection_id: collectionId ? Number(collectionId) : undefined,
+        }),
       })
 
       if (!res.body) throw new Error('No stream')
@@ -117,6 +128,21 @@ export default function ChatPage() {
           <input type="checkbox" checked={useWeb} onChange={e => setUseWeb(e.target.checked)} />
           Web fallback
         </label>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#94a3b8', fontSize: '0.9rem', cursor: 'pointer' }}>
+          <input type="checkbox" checked={useHyde} onChange={e => setUseHyde(e.target.checked)} />
+          HyDE retrieval
+        </label>
+
+        {collectionsData?.collections?.length ? (
+          <select value={collectionId} onChange={e => setCollectionId(e.target.value)}
+            style={{ padding: '8px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#e2e8f0', fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <option value="" style={{ background: '#1e293b' }}>All sources</option>
+            {collectionsData.collections.map(c => (
+              <option key={c.id} value={c.id} style={{ background: '#1e293b' }}>{c.name}</option>
+            ))}
+          </select>
+        ) : null}
 
         <button onClick={() => { setMessages([]); localStorage.removeItem('devflow_chat') }} className="btn"
           style={{ marginLeft: 'auto', padding: '8px 14px', background: 'rgba(255,255,255,0.06)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.1)', fontSize: '0.85rem' }}>

@@ -77,6 +77,21 @@ export interface HistoryItem {
   created_at: string
 }
 
+export interface JobStatus {
+  job_id: string
+  status: 'pending' | 'indexing' | 'completed' | 'failed'
+  filename: string
+  chunks: number
+  error: string | null
+}
+
+export interface SourceChunk {
+  id: string
+  text: string
+  chunk_index: number
+  total_chunks: number
+}
+
 export interface AnalyticsData {
   cache_hit_rate: number
   chromadb_count: number

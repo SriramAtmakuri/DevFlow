@@ -65,6 +65,41 @@ class WebSearcher:
             print(f"Python scrape error for {url}: {e}")
             return ""
 
+    def scrape_url(self, url: str, max_length: int = 8000) -> Dict[str, Any]:
+        """Scrape a single URL. Returns {title, content}. Tries Go scraper first."""
+        scraped = self._scrape_via_go([url], max_length)
+        if url in scraped:
+            title = self._extract_title(url)
+            return {"title": title or url, "content": scraped[url]}
+        return self._scrape_with_title_python(url, max_length)
+
+    def _extract_title(self, url: str) -> str:
+        try:
+            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; DevFlow/2.0)"}, timeout=8)
+            soup = BeautifulSoup(resp.content, "lxml")
+            tag = soup.find("title")
+            return tag.get_text().strip() if tag else ""
+        except Exception:
+            return ""
+
+    def _scrape_with_title_python(self, url: str, max_length: int = 8000) -> Dict[str, Any]:
+        try:
+            headers = {"User-Agent": "Mozilla/5.0 (compatible; DevFlow/2.0)"}
+            resp = requests.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.content, "lxml")
+            title_tag = soup.find("title")
+            title = title_tag.get_text().strip() if title_tag else url
+            for tag in soup(["script", "style", "nav", "footer", "header"]):
+                tag.decompose()
+            lines = [l.strip() for l in soup.get_text(separator="\n").splitlines() if l.strip()]
+            text = "\n".join(lines)
+            content = text[:max_length] + "..." if len(text) > max_length else text
+            return {"title": title, "content": content}
+        except Exception as e:
+            print(f"Python scrape error for {url}: {e}")
+            return {"title": url, "content": ""}
+
     def search_and_scrape(self, query: str, count: int = 3) -> List[Dict[str, Any]]:
         search_results = self.search(query, count)
         if not search_results:

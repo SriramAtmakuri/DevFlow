@@ -23,7 +23,7 @@ from models.schemas import (
     SearchRequest, HybridSearchRequest, ManualDocumentRequest,
     SaveWebResultRequest, IndexResponse, UploadResponse,
     StatsResponse, UserRegisterRequest, UserLoginRequest, TokenResponse,
-    JobStatusResponse,
+    JobStatusResponse, UrlIndexRequest, BulkDeleteRequest,
 )
 from auth.auth import init_users_table, register_user, authenticate_user, create_access_token, revoke_token
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -267,6 +267,61 @@ async def upload_status(job_id: str):
         job_id=job_id, status=job["status"], filename=job["filename"],
         chunks=job["chunks"], error=job.get("error"),
     )
+
+
+def _index_url_task(job_id: str, url: str, title: str, collection_id: int = None):
+    try:
+        result = web_searcher.scrape_url(url)
+        content = result.get("content", "")
+        page_title = title or result.get("title", url)
+
+        if not content or len(content.strip()) < 50:
+            db.update_job(job_id, "failed", error="Could not extract content from URL")
+            return
+
+        sample = " ".join(content.split()[:200])
+        if retriever.is_duplicate(sample):
+            db.update_job(job_id, "failed", error="Similar content already exists in your knowledge base")
+            return
+
+        source_id = db.add_source("web", url, page_title)
+        chunks, embeddings, metadatas, ids = indexer.prepare_documents(
+            [content], [page_title], [url], source_id, "web",
+        )
+        retriever.add_documents(chunks, embeddings, metadatas, ids)
+        db.update_source_status(source_id, "indexed")
+        db.add_document(indexer.generate_id(content), source_id, page_title, url)
+        if collection_id:
+            db.add_source_to_collection(source_id, collection_id)
+        db.update_job(job_id, "completed", chunks=len(chunks))
+        logger.info(f"Job {job_id}: indexed URL {url} → {len(chunks)} chunks")
+    except Exception as e:
+        db.update_job(job_id, "failed", error=str(e))
+        logger.error(f"Job {job_id} URL index failed: {e}")
+
+
+@app.post("/api/index/url", response_model=UploadResponse)
+@limiter.limit("10/minute")
+async def index_url(request: Request, data: UrlIndexRequest, background_tasks: BackgroundTasks):
+    job_id = str(uuid.uuid4())
+    db.create_job(job_id, data.url)
+    background_tasks.add_task(_index_url_task, job_id, data.url, data.title or "", data.collection_id)
+    logger.info(f"URL index queued: {data.url} → job {job_id}")
+    return UploadResponse(success=True, message=f"URL queued: {data.url}", job_id=job_id)
+
+
+@app.post("/api/sources/bulk-delete")
+async def bulk_delete_sources(data: BulkDeleteRequest):
+    for sid in data.ids:
+        retriever.delete_by_source(sid)
+        db.delete_source(sid)
+    return {"success": True, "deleted": len(data.ids)}
+
+
+@app.get("/api/sources/{source_id}/chunks")
+async def get_source_chunks(source_id: int):
+    chunks = retriever.get_chunks_by_source(source_id)
+    return {"source_id": source_id, "chunks": chunks, "total": len(chunks)}
 
 
 @app.post("/api/save-web-result", response_model=IndexResponse)

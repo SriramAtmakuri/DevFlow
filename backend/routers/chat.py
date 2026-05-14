@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 
 from cache.redis_cache import get_redis
+from database.db import Database
 from rag.retriever import Retriever
 from rag.reranker import Reranker
 from rag.generator import GeminiRAG
@@ -13,6 +14,7 @@ from models.schemas import ChatStreamRequest
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
+db = Database()
 retriever = Retriever()
 reranker = Reranker()
 rag = GeminiRAG()
@@ -47,8 +49,19 @@ async def stream_chat(request: Request, data: ChatStreamRequest):
     session_id = data.session_id
     history = _get_history(session_id)
 
+    # Resolve collection source IDs if scoped
+    collection_source_ids = None
+    if data.collection_id:
+        sources = db.get_sources(collection_id=data.collection_id)
+        collection_source_ids = [s["id"] for s in sources]
+
     # Retrieve context
-    doc_results = retriever.search(data.message, n_results=6)
+    doc_results = retriever.search(
+        data.message,
+        n_results=6,
+        collection_source_ids=collection_source_ids,
+        use_hyde=data.use_hyde,
+    )
     documents = doc_results["documents"] or []
     metadatas = doc_results["metadatas"] or []
 

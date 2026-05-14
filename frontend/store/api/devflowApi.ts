@@ -1,6 +1,6 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
 import type { RootState } from '../index'
-import type { Source, SearchResult, HybridSearchResult, Stats, AuthResponse } from '../../types'
+import type { Source, SearchResult, HybridSearchResult, Stats, AuthResponse, JobStatus, SourceChunk } from '../../types'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -76,6 +76,19 @@ export const devflowApi = createApi({
       query: (id) => ({ url: `/collections/${id}`, method: 'DELETE' }),
       invalidatesTags: ['Collections'],
     }),
+    indexUrl: builder.mutation<{ success: boolean; job_id: string }, { url: string; title?: string; collection_id?: number }>({
+      query: (body) => ({ url: '/index/url', method: 'POST', body }),
+    }),
+    bulkDeleteSources: builder.mutation<{ success: boolean; deleted: number }, { ids: number[] }>({
+      query: (body) => ({ url: '/sources/bulk-delete', method: 'POST', body }),
+      invalidatesTags: ['Sources', 'Stats'],
+    }),
+    getSourceChunks: builder.query<{ chunks: SourceChunk[]; total: number }, number>({
+      query: (sourceId) => `/sources/${sourceId}/chunks`,
+    }),
+    getJobStatus: builder.query<JobStatus, string>({
+      query: (jobId) => `/upload/status/${jobId}`,
+    }),
   }),
 })
 
@@ -95,4 +108,8 @@ export const {
   useGetCollectionsQuery,
   useCreateCollectionMutation,
   useDeleteCollectionMutation,
+  useIndexUrlMutation,
+  useBulkDeleteSourcesMutation,
+  useGetSourceChunksQuery,
+  useGetJobStatusQuery,
 } = devflowApi

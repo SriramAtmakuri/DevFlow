@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 
 SUPPORTED_MODELS = Literal["gemini-flash", "gemini-pro", "claude-haiku", "gpt-4o-mini"]
 
@@ -24,6 +24,18 @@ class ChatStreamRequest(BaseModel):
     session_id: str = Field(..., min_length=1)
     model: SUPPORTED_MODELS = "gemini-flash"
     use_web: bool = False
+    use_hyde: bool = False
+    collection_id: Optional[int] = None
+
+
+class UrlIndexRequest(BaseModel):
+    url: str = Field(..., min_length=1, max_length=2000)
+    title: Optional[str] = Field(default=None, max_length=500)
+    collection_id: Optional[int] = None
+
+
+class BulkDeleteRequest(BaseModel):
+    ids: List[int] = Field(..., min_length=1)
 
 
 class ManualDocumentRequest(BaseModel):
