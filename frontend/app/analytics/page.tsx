@@ -12,10 +12,14 @@ import {
 const COLORS = ['#818cf8', '#a78bfa', '#f472b6', '#34d399', '#fb923c']
 
 export default function AnalyticsPage() {
-  const { data, isLoading } = useGetAnalyticsQuery()
+  const { data, isLoading, isError } = useGetAnalyticsQuery()
 
   if (isLoading) return (
     <div className="container"><Navbar active="analytics" /><div className="loading">Loading analytics</div></div>
+  )
+
+  if (isError || !data) return (
+    <div className="container"><Navbar active="analytics" /><div className="error">Failed to load analytics</div></div>
   )
 
   const d = data as AnalyticsData

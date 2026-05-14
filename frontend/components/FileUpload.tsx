@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Upload, File, CheckCircle, AlertCircle, Loader } from 'lucide-react'
+import { Upload, File, AlertCircle, Loader } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useGetStatsQuery, useGetSourcesQuery, useGetJobStatusQuery } from '@/store/api/devflowApi'
 

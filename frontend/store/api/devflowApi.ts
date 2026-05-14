@@ -1,6 +1,6 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
 import type { RootState } from '../index'
-import type { Source, SearchResult, HybridSearchResult, Stats, AuthResponse, JobStatus, SourceChunk } from '../../types'
+import type { Source, SearchResult, HybridSearchResult, Stats, AuthResponse, JobStatus, SourceChunk, Collection, HistoryItem, AnalyticsData } from '../../types'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -57,18 +57,18 @@ export const devflowApi = createApi({
     logoutUser: builder.mutation<{ success: boolean }, void>({
       query: () => ({ url: '/auth/logout', method: 'POST' }),
     }),
-    getHistory: builder.query<{ history: any[] }, void>({
+    getHistory: builder.query<{ history: HistoryItem[] }, void>({
       query: () => '/history',
       providesTags: ['History'],
     }),
-    getAnalytics: builder.query<any, void>({
+    getAnalytics: builder.query<AnalyticsData, void>({
       query: () => '/analytics',
     }),
-    getCollections: builder.query<{ collections: any[] }, void>({
+    getCollections: builder.query<{ collections: Collection[] }, void>({
       query: () => '/collections',
       providesTags: ['Collections'],
     }),
-    createCollection: builder.mutation<{ success: boolean; collection: any }, { name: string; description?: string }>({
+    createCollection: builder.mutation<{ success: boolean; collection: Collection }, { name: string; description?: string }>({
       query: (body) => ({ url: '/collections', method: 'POST', body }),
       invalidatesTags: ['Collections'],
     }),
@@ -94,6 +94,7 @@ export const devflowApi = createApi({
 
 export const {
   useHybridSearchMutation,
+  useSearchMutation,
   useGetSourcesQuery,
   useGetStatsQuery,
   useDeleteSourceMutation,

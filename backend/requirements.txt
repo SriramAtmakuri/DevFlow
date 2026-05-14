@@ -20,6 +20,11 @@ sentence-transformers==3.3.1
 langchain-anthropic==0.3.0
 langchain-openai==0.3.0
 
+# Database
+sqlalchemy==2.0.36
+psycopg2-binary==2.9.9
+alembic==1.13.3
+
 # Caching
 redis[hiredis]==5.2.0
 
@@ -33,6 +38,15 @@ strawberry-graphql[fastapi]==0.244.0
 # Rate limiting + logging
 slowapi==0.1.9
 loguru==0.7.2
+
+# Multilingual support
+langdetect==1.0.9
+
+# Observability
+sentry-sdk[fastapi]==2.19.0
+
+# Cloud storage (optional — set AWS_S3_BUCKET to enable)
+boto3==1.35.0
 
 # Testing
 pytest==8.3.4

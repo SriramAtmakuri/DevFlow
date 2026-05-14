@@ -1,24 +1,59 @@
 import json
 import uuid
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from loguru import logger
 
 from cache.redis_cache import get_redis
-from database.db import Database
-from rag.retriever import Retriever
-from rag.reranker import Reranker
-from rag.generator import GeminiRAG
-from connectors.web_search import WebSearcher
 from models.schemas import ChatStreamRequest
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
-db = Database()
-retriever = Retriever()
-reranker = Reranker()
-rag = GeminiRAG()
-web_searcher = WebSearcher()
+_db = None
+_retriever = None
+_reranker = None
+_rag = None
+_web_searcher = None
+
+
+def _get_db():
+    global _db
+    if _db is None:
+        from database.db import Database
+        _db = Database()
+    return _db
+
+
+def _get_retriever():
+    global _retriever
+    if _retriever is None:
+        from rag.retriever import Retriever
+        _retriever = Retriever()
+    return _retriever
+
+
+def _get_reranker():
+    global _reranker
+    if _reranker is None:
+        from rag.reranker import Reranker
+        _reranker = Reranker()
+    return _reranker
+
+
+def _get_rag():
+    global _rag
+    if _rag is None:
+        from rag.generator import GeminiRAG
+        _rag = GeminiRAG()
+    return _rag
+
+
+def _get_web_searcher():
+    global _web_searcher
+    if _web_searcher is None:
+        from connectors.web_search import WebSearcher
+        _web_searcher = WebSearcher()
+    return _web_searcher
 
 HISTORY_TTL = 60 * 60 * 24  # 24h
 
@@ -45,18 +80,16 @@ def _save_history(session_id: str, history: list):
 
 
 @router.post("/stream")
-async def stream_chat(request: Request, data: ChatStreamRequest):
+async def stream_chat(data: ChatStreamRequest):
     session_id = data.session_id
     history = _get_history(session_id)
 
-    # Resolve collection source IDs if scoped
     collection_source_ids = None
     if data.collection_id:
-        sources = db.get_sources(collection_id=data.collection_id)
+        sources = _get_db().get_sources(collection_id=data.collection_id)
         collection_source_ids = [s["id"] for s in sources]
 
-    # Retrieve context
-    doc_results = retriever.search(
+    doc_results = _get_retriever().search(
         data.message,
         n_results=6,
         collection_source_ids=collection_source_ids,
@@ -66,11 +99,11 @@ async def stream_chat(request: Request, data: ChatStreamRequest):
     metadatas = doc_results["metadatas"] or []
 
     if documents:
-        documents, metadatas = reranker.rerank(data.message, documents, metadatas, top_k=4)
+        documents, metadatas = _get_reranker().rerank(data.message, documents, metadatas, top_k=4)
 
     web_sources = []
     if data.use_web and len(documents) < 2:
-        web_results = web_searcher.search_and_scrape(data.message, count=2)
+        web_results = _get_web_searcher().search_and_scrape(data.message, count=2)
         web_sources = [r["content"] for r in web_results]
         web_meta = [{"title": r["title"], "url": r["url"], "source": "web"} for r in web_results]
         documents += web_sources
@@ -79,7 +112,7 @@ async def stream_chat(request: Request, data: ChatStreamRequest):
     async def event_stream():
         full_answer = ""
         try:
-            async for chunk in rag.astream_answer(
+            async for chunk in _get_rag().astream_answer(
                 query=data.message,
                 context=documents,
                 sources=metadatas,

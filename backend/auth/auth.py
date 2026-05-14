@@ -1,12 +1,16 @@
 import os
 import hashlib
-import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+
+from database.engine import engine
+from database.models import metadata
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "devflow-change-this-in-production")
 ALGORITHM = "HS256"
@@ -45,25 +49,8 @@ def _is_revoked(token: str) -> bool:
         return False
 
 
-def _get_conn():
-    conn = sqlite3.connect("devflow.db")
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def init_users_table():
-    conn = _get_conn()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            username TEXT UNIQUE NOT NULL,
-            hashed_password TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
+    metadata.create_all(engine)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -97,28 +84,24 @@ def require_auth(credentials: HTTPAuthorizationCredentials = Security(security))
 
 
 def register_user(email: str, username: str, password: str) -> dict:
-    conn = _get_conn()
+    hashed = pwd_context.hash(password)
     try:
-        hashed = pwd_context.hash(password)
-        cursor = conn.execute(
-            "INSERT INTO users (email, username, hashed_password) VALUES (?, ?, ?)",
-            (email, username, hashed),
-        )
-        user_id = cursor.lastrowid
-        conn.commit()
+        with engine.begin() as conn:
+            result = conn.execute(
+                text("INSERT INTO users (email, username, hashed_password) VALUES (:email, :username, :hashed) RETURNING id"),
+                {"email": email, "username": username, "hashed": hashed},
+            )
+            user_id = result.scalar()
         return {"id": user_id, "email": email, "username": username}
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         raise HTTPException(status_code=409, detail="Email or username already exists")
-    finally:
-        conn.close()
 
 
 def authenticate_user(email: str, password: str) -> dict:
-    conn = _get_conn()
-    try:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-        if not row or not pwd_context.verify(password, row["hashed_password"]):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
-        return {"id": row["id"], "email": row["email"], "username": row["username"]}
-    finally:
-        conn.close()
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT * FROM users WHERE email=:email"), {"email": email})
+        row = result.fetchone()
+    if not row or not pwd_context.verify(password, row._mapping["hashed_password"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    m = row._mapping
+    return {"id": m["id"], "email": m["email"], "username": m["username"]}

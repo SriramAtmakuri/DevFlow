@@ -1,6 +1,7 @@
 from typing import List, Dict, Tuple
 import hashlib
 from sentence_transformers import SentenceTransformer
+from rag.lang import detect_language
 
 _model: SentenceTransformer = None
 
@@ -8,7 +9,9 @@ _model: SentenceTransformer = None
 def get_embedding_model() -> SentenceTransformer:
     global _model
     if _model is None:
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
+        # multilingual-e5-base: 94 languages, 768-dim
+        # Requires "query: " prefix for queries, "passage: " prefix for documents
+        _model = SentenceTransformer("intfloat/multilingual-e5-base")
     return _model
 
 
@@ -51,7 +54,14 @@ class Indexer:
             chunks = self.chunk_text(text)
             if not chunks:
                 continue
-            embeddings = self.generate_embeddings(chunks)
+
+            lang = detect_language(text)
+
+            # multilingual-e5: passages must use "passage: " prefix for best quality.
+            # Raw chunk text is stored; prefixed version is only used for embedding generation.
+            prefixed = [f"passage: {chunk}" for chunk in chunks]
+            embeddings = self.generate_embeddings(prefixed)
+
             for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
                 chunk_id = self.generate_id(f"{url}_{i}")
                 all_chunks.append(chunk)
@@ -64,6 +74,7 @@ class Indexer:
                     "source_type": source_type,
                     "chunk_index": i,
                     "total_chunks": len(chunks),
+                    "lang": lang,
                 })
 
         return all_chunks, all_embeddings, all_metadatas, all_ids

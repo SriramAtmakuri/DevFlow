@@ -15,6 +15,9 @@ RAG_PROMPT = ChatPromptTemplate.from_template(
 Answer using ONLY the provided context. Be precise and structured.
 Use markdown formatting. Include code blocks with language tags where relevant.
 If context is insufficient, say so clearly.
+IMPORTANT: Always respond in the same language as the question. \
+If the question is in Spanish, answer in Spanish. \
+If in French, answer in French. Match the language of the question exactly.
 
 Context:
 {context}

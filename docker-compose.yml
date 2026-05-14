@@ -1,11 +1,24 @@
 version: '3.9'
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: devflow
+      POSTGRES_USER: devflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devflow_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devflow -d devflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
@@ -38,6 +51,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       go-scraper:
@@ -45,17 +60,17 @@ services:
     env_file:
       - ./backend/.env
     environment:
+      - DATABASE_URL=postgresql://devflow:${POSTGRES_PASSWORD:-devflow_secret}@postgres:5432/devflow
       - REDIS_URL=redis://redis:6379
       - GO_SCRAPER_URL=http://go-scraper:8001
     volumes:
       - chroma_data:/app/chroma_db
-      - sqlite_data:/app/devflow.db
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 40s
 
   frontend:
     build:
@@ -71,6 +86,6 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
 
 volumes:
+  postgres_data:
   redis_data:
   chroma_data:
-  sqlite_data:

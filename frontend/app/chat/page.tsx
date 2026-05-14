@@ -35,7 +35,16 @@ export default function ChatPage() {
   const [streaming, setStreaming] = useState(false)
   const [model, setModel] = useState('gemini-flash')
   const [useWeb, setUseWeb] = useState(false)
-  const [sessionId] = useState(() => crypto.randomUUID())
+  const [sessionId] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('devflow_session_id')
+      if (saved) return saved
+      const id = crypto.randomUUID()
+      localStorage.setItem('devflow_session_id', id)
+      return id
+    }
+    return crypto.randomUUID()
+  })
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -145,8 +154,14 @@ export default function ChatPage() {
           </select>
         ) : null}
 
-        <button onClick={() => { setMessages([]); localStorage.removeItem('devflow_chat') }} className="btn"
-          style={{ marginLeft: 'auto', padding: '8px 14px', background: 'rgba(255,255,255,0.06)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.1)', fontSize: '0.85rem' }}>
+        <button className="btn"
+          style={{ marginLeft: 'auto', padding: '8px 14px', background: 'rgba(255,255,255,0.06)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.1)', fontSize: '0.85rem' }}
+          onClick={() => {
+            const id = crypto.randomUUID()
+            localStorage.setItem('devflow_session_id', id)
+            localStorage.removeItem('devflow_chat')
+            setMessages([])
+          }}>
           <Plus size={14} /> New chat
         </button>
       </div>

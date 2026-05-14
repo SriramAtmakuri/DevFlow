@@ -2,6 +2,45 @@ import strawberry
 from strawberry.fastapi import GraphQLRouter
 from typing import List, Optional
 
+# ── Lazy singletons — load ML models once, not per request ───────────────────
+
+_db = None
+_retriever = None
+_reranker = None
+_rag = None
+
+
+def _get_db():
+    global _db
+    if _db is None:
+        from database.db import Database
+        _db = Database()
+    return _db
+
+
+def _get_retriever():
+    global _retriever
+    if _retriever is None:
+        from rag.retriever import Retriever
+        _retriever = Retriever()
+    return _retriever
+
+
+def _get_reranker():
+    global _reranker
+    if _reranker is None:
+        from rag.reranker import Reranker
+        _reranker = Reranker()
+    return _reranker
+
+
+def _get_rag():
+    global _rag
+    if _rag is None:
+        from rag.generator import GeminiRAG
+        _rag = GeminiRAG()
+    return _rag
+
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -78,62 +117,54 @@ class MutationResult:
 class Query:
     @strawberry.field
     def sources(self, collection_id: Optional[int] = None, limit: int = 50, offset: int = 0) -> List[SourceType]:
-        from database.db import Database
         return [
             SourceType(
                 id=r["id"], type=r["type"], name=r.get("name"),
                 status=r["status"], indexed_at=r.get("indexed_at"),
                 created_at=r["created_at"], doc_count=r.get("doc_count", 0),
             )
-            for r in Database().get_sources(collection_id=collection_id, limit=limit, offset=offset)
+            for r in _get_db().get_sources(collection_id=collection_id, limit=limit, offset=offset)
         ]
 
     @strawberry.field
     def stats(self) -> StatsType:
-        from database.db import Database
-        from rag.retriever import Retriever
-        s = Database().get_stats()
+        s = _get_db().get_stats()
         return StatsType(
             sources=s["sources"], documents=s["documents"],
-            searches=s["searches"], chromadb_count=Retriever().count(),
+            searches=s["searches"], chromadb_count=_get_retriever().count(),
         )
 
     @strawberry.field
     def collections(self) -> List[CollectionType]:
-        from database.db import Database
         return [
             CollectionType(
                 id=c["id"], name=c["name"], description=c.get("description"),
                 source_count=c.get("source_count", 0), created_at=c["created_at"],
             )
-            for c in Database().get_collections()
+            for c in _get_db().get_collections()
         ]
 
     @strawberry.field
     def history(self, limit: int = 50) -> List[HistoryItemType]:
-        from database.db import Database
         return [
             HistoryItemType(
                 id=h["id"], query=h["query"], results_count=h["results_count"],
                 cached=h["cached"], model=h["model"], created_at=h["created_at"],
             )
-            for h in Database().get_search_history(limit)
+            for h in _get_db().get_search_history(limit)
         ]
 
     @strawberry.field
     def analytics(self) -> AnalyticsType:
-        from database.db import Database
-        from rag.retriever import Retriever
-        d = Database().get_analytics()
+        d = _get_db().get_analytics()
         return AnalyticsType(
             cache_hit_rate=d.get("cache_hit_rate", 0.0),
-            chromadb_count=Retriever().count(),
+            chromadb_count=_get_retriever().count(),
         )
 
     @strawberry.field
     def job_status(self, job_id: str) -> Optional[JobType]:
-        from database.db import Database
-        j = Database().get_job(job_id)
+        j = _get_db().get_job(job_id)
         if not j:
             return None
         return JobType(
@@ -148,19 +179,16 @@ class Query:
 class Mutation:
     @strawberry.mutation
     def delete_source(self, source_id: int) -> MutationResult:
-        from database.db import Database
-        from rag.retriever import Retriever
         try:
-            Retriever().delete_by_source(source_id)
-            Database().delete_source(source_id)
+            _get_retriever().delete_by_source(source_id)
+            _get_db().delete_source(source_id)
             return MutationResult(success=True, message="Source deleted")
         except Exception as e:
             return MutationResult(success=False, message=str(e))
 
     @strawberry.mutation
     def create_collection(self, name: str, description: Optional[str] = None) -> CollectionType:
-        from database.db import Database
-        db = Database()
+        db = _get_db()
         cid = db.create_collection(name, description)
         cols = db.get_collections()
         col = next((c for c in cols if c["id"] == cid), None)
@@ -171,18 +199,16 @@ class Mutation:
 
     @strawberry.mutation
     def delete_collection(self, collection_id: int) -> MutationResult:
-        from database.db import Database
         try:
-            Database().delete_collection(collection_id)
+            _get_db().delete_collection(collection_id)
             return MutationResult(success=True, message="Collection deleted")
         except Exception as e:
             return MutationResult(success=False, message=str(e))
 
     @strawberry.mutation
     def add_source_to_collection(self, source_id: int, collection_id: int) -> MutationResult:
-        from database.db import Database
         try:
-            Database().add_source_to_collection(source_id, collection_id)
+            _get_db().add_source_to_collection(source_id, collection_id)
             return MutationResult(success=True, message="Source added to collection")
         except Exception as e:
             return MutationResult(success=False, message=str(e))
@@ -192,13 +218,10 @@ class Mutation:
         self, query: str, n_results: int = 5,
         model: str = "gemini-flash", use_hyde: bool = False,
     ) -> SearchResultType:
-        from rag.retriever import Retriever
-        from rag.reranker import Reranker
-        from rag.generator import GeminiRAG
-        from database.db import Database
         from cache.redis_cache import make_cache_key, get_cached, set_cached
 
-        cache_key = make_cache_key("gql_search", {"q": query, "n": n_results, "m": model})
+        from rag.lang import detect_language
+        cache_key = make_cache_key("gql_search", {"q": query, "n": n_results, "m": model, "lang": detect_language(query), "hyde": use_hyde})
         cached = get_cached(cache_key)
         if cached:
             return SearchResultType(
@@ -206,19 +229,18 @@ class Mutation:
                 cached=True, source_count=len(cached.get("sources", [])),
             )
 
-        retriever = Retriever()
-        results = retriever.search(query, n_results, use_hyde=use_hyde)
+        results = _get_retriever().search(query, n_results, use_hyde=use_hyde)
         documents = results["documents"] or []
         metadatas = results["metadatas"] or []
 
         if documents:
-            documents, metadatas = Reranker().rerank(query, documents, metadatas)
+            documents, metadatas = _get_reranker().rerank(query, documents, metadatas)
 
         if not documents:
             return SearchResultType(answer="No relevant documents found.", model=model, cached=False, source_count=0)
 
-        response = GeminiRAG().generate_answer(query=query, context=documents, sources=metadatas, model=model)
-        Database().add_search(query, len(documents), cached=False, model=model)
+        response = _get_rag().generate_answer(query=query, context=documents, sources=metadatas, model=model)
+        _get_db().add_search(query, len(documents), cached=False, model=model)
         set_cached(cache_key, response)
 
         return SearchResultType(

@@ -5,7 +5,7 @@ services:
     plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
@@ -26,6 +26,20 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: OPENAI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: ENVIRONMENT
+        value: production
+      - key: AWS_S3_BUCKET
+        sync: false
+      - key: AWS_S3_REGION
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
         sync: false
 
   - type: web
@@ -48,4 +62,6 @@ services:
     startCommand: npm start
     envVars:
       - key: NEXT_PUBLIC_API_URL
+        sync: false
+      - key: NEXT_PUBLIC_SENTRY_DSN
         sync: false

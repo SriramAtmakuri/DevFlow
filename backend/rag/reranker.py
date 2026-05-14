@@ -7,7 +7,8 @@ _model: CrossEncoder = None
 def get_reranker() -> CrossEncoder:
     global _model
     if _model is None:
-        _model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        # Multilingual cross-encoder: 100 languages, MMARCO-trained
+        _model = CrossEncoder("cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
     return _model
 
 

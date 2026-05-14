@@ -28,6 +28,7 @@ def make_cache_key(prefix: str, data: Any) -> str:
 
 
 def get_cached(key: str) -> Optional[dict]:
+    global _client
     client = get_redis()
     if not client:
         return None
@@ -35,10 +36,12 @@ def get_cached(key: str) -> Optional[dict]:
         value = client.get(key)
         return json.loads(value) if value else None
     except Exception:
+        _client = None  # force reconnect on next call
         return None
 
 
 def set_cached(key: str, value: dict, ttl: int = CACHE_TTL) -> bool:
+    global _client
     client = get_redis()
     if not client:
         return False
@@ -46,6 +49,7 @@ def set_cached(key: str, value: dict, ttl: int = CACHE_TTL) -> bool:
         client.setex(key, ttl, json.dumps(value))
         return True
     except Exception:
+        _client = None  # force reconnect on next call
         return False
 
 
