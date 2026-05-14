@@ -7,6 +7,7 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from loguru import logger
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -51,6 +52,7 @@ app = FastAPI(title="DevFlow API", version="2.1.0",
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 _allowed_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
 app.add_middleware(
@@ -149,7 +151,7 @@ async def search(request: Request, data: SearchRequest):
         cached["cached"] = True
         return cached
 
-    results = retriever.search(data.query, data.n_results)
+    results = retriever.search(data.query, data.n_results, use_hyde=data.use_hyde)
     documents, metadatas = results["documents"] or [], results["metadatas"] or []
 
     if documents and data.rerank:
@@ -175,7 +177,7 @@ async def hybrid_search(request: Request, data: HybridSearchRequest):
         cached["cached"] = True
         return cached
 
-    doc_results = retriever.search(data.query, data.n_results)
+    doc_results = retriever.search(data.query, data.n_results, use_hyde=data.use_hyde)
     documents = doc_results["documents"] or []
     metadatas = doc_results["metadatas"] or []
 

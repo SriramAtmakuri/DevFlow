@@ -9,6 +9,7 @@ class SearchRequest(BaseModel):
     n_results: int = Field(default=5, ge=1, le=20)
     model: SUPPORTED_MODELS = "gemini-flash"
     rerank: bool = True
+    use_hyde: bool = False
 
 
 class HybridSearchRequest(BaseModel):
@@ -17,6 +18,7 @@ class HybridSearchRequest(BaseModel):
     use_web: bool = True
     model: SUPPORTED_MODELS = "gemini-flash"
     rerank: bool = True
+    use_hyde: bool = False
 
 
 class ChatStreamRequest(BaseModel):
@@ -76,15 +78,6 @@ class StatsResponse(BaseModel):
     documents: int
     searches: int
     chromadb_count: int
-
-
-class UploadFullResponse(BaseModel):
-    success: bool
-    message: str
-    file_type: str
-    source_id: int
-    chunks: int
-    text_length: int
 
 
 class UserRegisterRequest(BaseModel):

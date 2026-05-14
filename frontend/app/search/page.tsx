@@ -13,11 +13,11 @@ export default function SearchPage() {
   const [error, setError] = useState<string | null>(null)
   const [hybridSearch, { isLoading }] = useHybridSearchMutation()
 
-  const handleSearch = async (query: string, useWeb: boolean) => {
+  const handleSearch = async (query: string, useWeb: boolean, useHyde: boolean) => {
     setError(null)
     setResult(null)
     try {
-      const data = await hybridSearch({ query, use_web: useWeb }).unwrap()
+      const data = await hybridSearch({ query, use_web: useWeb, use_hyde: useHyde }).unwrap()
       setResult(data)
     } catch (err: unknown) {
       const e = err as { data?: { detail?: string } }

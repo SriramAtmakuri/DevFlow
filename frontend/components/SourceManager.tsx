@@ -187,7 +187,7 @@ export default function SourceManager() {
           </div>
           <button type="submit" className="btn btn-primary" disabled={isIndexingUrl}>
             {isIndexingUrl
-              ? <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Indexing…</>
+              ? <><Loader size={16} className="spin" /> Indexing…</>
               : <><Link size={16} /> Index URL</>}
           </button>
         </form>

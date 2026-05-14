@@ -16,7 +16,7 @@ export const devflowApi = createApi({
   }),
   tagTypes: ['Sources', 'Stats', 'Collections', 'History'],
   endpoints: (builder) => ({
-    hybridSearch: builder.mutation<HybridSearchResult, { query: string; use_web?: boolean }>({
+    hybridSearch: builder.mutation<HybridSearchResult, { query: string; use_web?: boolean; use_hyde?: boolean }>({
       query: (body) => ({ url: '/search/hybrid', method: 'POST', body }),
     }),
     search: builder.mutation<SearchResult, { query: string; n_results?: number }>({
@@ -94,7 +94,6 @@ export const devflowApi = createApi({
 
 export const {
   useHybridSearchMutation,
-  useSearchMutation,
   useGetSourcesQuery,
   useGetStatsQuery,
   useDeleteSourceMutation,

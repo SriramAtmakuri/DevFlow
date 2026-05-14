@@ -1,20 +1,21 @@
 'use client'
 
 import { useState } from 'react'
-import { Search, Globe } from 'lucide-react'
+import { Search, Globe, Zap } from 'lucide-react'
 
 interface SearchBarProps {
-  onSearch: (query: string, useWeb: boolean) => void
+  onSearch: (query: string, useWeb: boolean, useHyde: boolean) => void
   loading: boolean
 }
 
 export default function SearchBar({ onSearch, loading }: SearchBarProps) {
   const [query, setQuery] = useState('')
   const [useWeb, setUseWeb] = useState(true)
+  const [useHyde, setUseHyde] = useState(false)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (query.trim()) onSearch(query.trim(), useWeb)
+    if (query.trim()) onSearch(query.trim(), useWeb, useHyde)
   }
 
   return (
@@ -33,11 +34,18 @@ export default function SearchBar({ onSearch, loading }: SearchBarProps) {
           {loading ? 'Searching...' : 'Search'}
         </button>
       </form>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, cursor: 'pointer', fontSize: '0.9rem', color: '#64748b' }}>
-        <input type="checkbox" checked={useWeb} onChange={(e) => setUseWeb(e.target.checked)} style={{ cursor: 'pointer' }} />
-        <Globe size={16} />
-        Search web if not in my documents
-      </label>
+      <div style={{ display: 'flex', gap: 20, marginTop: 12, flexWrap: 'wrap' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.9rem', color: '#64748b' }}>
+          <input type="checkbox" checked={useWeb} onChange={(e) => setUseWeb(e.target.checked)} style={{ cursor: 'pointer' }} />
+          <Globe size={15} />
+          Web fallback
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.9rem', color: '#64748b' }}>
+          <input type="checkbox" checked={useHyde} onChange={(e) => setUseHyde(e.target.checked)} style={{ cursor: 'pointer' }} />
+          <Zap size={15} />
+          HyDE retrieval
+        </label>
+      </div>
     </div>
   )
 }

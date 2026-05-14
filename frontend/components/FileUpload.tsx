@@ -77,7 +77,7 @@ export default function FileUpload() {
       <div style={{ marginBottom: 16 }}>
         <label htmlFor="file-upload" className="btn btn-primary"
           style={{ cursor: uploading || isIndexing ? 'not-allowed' : 'pointer', opacity: uploading || isIndexing ? 0.6 : 1 }}>
-          {isIndexing ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <File size={18} />}
+          {isIndexing ? <Loader size={18} className="spin" /> : <File size={18} />}
           {uploading ? 'Uploading...' : isIndexing ? 'Indexing...' : 'Choose File (PDF, DOCX, TXT)'}
         </label>
         <input id="file-upload" ref={inputRef} type="file" accept=".pdf,.docx,.txt"
@@ -85,7 +85,7 @@ export default function FileUpload() {
       </div>
       {isIndexing && (
         <div style={{ background: 'rgba(139,124,248,0.1)', color: '#a78bfa', padding: '10px 14px', borderRadius: 8, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, border: '1px solid rgba(139,124,248,0.2)', fontSize: '0.9rem' }}>
-          <Loader size={16} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+          <Loader size={16} className="spin" style={{ flexShrink: 0 }} />
           Indexing in background — you can keep using the app
         </div>
       )}

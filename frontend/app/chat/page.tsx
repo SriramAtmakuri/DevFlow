@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Send, Plus, Bot, User, Zap } from 'lucide-react'
 import Navbar from '@/components/Navbar'
 import MarkdownRenderer from '@/components/MarkdownRenderer'
@@ -159,28 +160,34 @@ export default function ChatPage() {
             <p>Ask follow-up questions — context is remembered across turns.</p>
           </div>
         )}
-        {messages.map((msg, i) => (
-          <div key={i} style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'flex-start',
-            flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
-            <div style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: msg.role === 'user' ? 'linear-gradient(135deg,#667eea,#764ba2)' : 'rgba(255,255,255,0.08)' }}>
-              {msg.role === 'user' ? <User size={16} color="white" /> : <Bot size={16} color="#818cf8" />}
-            </div>
-            <div style={{ maxWidth: '75%', background: msg.role === 'user' ? 'rgba(102,126,234,0.15)' : 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '12px 16px' }}>
-              {msg.role === 'assistant' ? (
-                <>
-                  <MarkdownRenderer content={msg.content || '...'} />
-                  {streaming && i === messages.length - 1 && !msg.content && (
-                    <span style={{ color: '#818cf8', animation: 'pulse 1s infinite' }}>●</span>
-                  )}
-                </>
-              ) : (
-                <p style={{ color: '#e2e8f0', margin: 0 }}>{msg.content}</p>
-              )}
-            </div>
-          </div>
-        ))}
+        <AnimatePresence initial={false}>
+          {messages.map((msg, i) => (
+            <motion.div key={i}
+              initial={{ opacity: 0, y: 10, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              style={{ display: 'flex', gap: 12, marginBottom: 20, alignItems: 'flex-start',
+                flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
+              <div style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: msg.role === 'user' ? 'linear-gradient(135deg,#667eea,#764ba2)' : 'rgba(255,255,255,0.08)' }}>
+                {msg.role === 'user' ? <User size={16} color="white" /> : <Bot size={16} color="#818cf8" />}
+              </div>
+              <div style={{ maxWidth: '75%', background: msg.role === 'user' ? 'rgba(102,126,234,0.15)' : 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '12px 16px' }}>
+                {msg.role === 'assistant' ? (
+                  <>
+                    <MarkdownRenderer content={msg.content || '...'} />
+                    {streaming && i === messages.length - 1 && !msg.content && (
+                      <span style={{ color: '#818cf8', animation: 'pulse 1s infinite' }}>●</span>
+                    )}
+                  </>
+                ) : (
+                  <p style={{ color: '#e2e8f0', margin: 0 }}>{msg.content}</p>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
         <div ref={bottomRef} />
       </div>
 
